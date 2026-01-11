@@ -1,0 +1,1588 @@
+/**
+ * Ring Sort Puzzle - Main Game Engine
+ * V10.3: ULTRA ROBUST EDITION
+ * Fixes: Crash Resilience, Strict Stars verified
+ */
+
+const getGlobals = () => ({
+    RingColors: window.RING_COLORS || {},
+    LevelMgr: window.LevelManager,
+    Levels: window.TOTAL_LEVELS || 60
+});
+
+// ===== Localization =====
+const TEXTS = {
+    en: {
+        play: "Play",
+        levels: "Levels",
+        settings: "Settings",
+        stars_stat: "Stars",
+        completed_stat: "Completed",
+        select_level: "Select Level",
+        level: "Level",
+        moves: "Moves:",
+        undo: "Undo",
+        sound: "Sound Effects",
+        congrats: "Congratulations!",
+        level_completed: "Level {0} Completed!",
+        moves_count: "{0} Moves",
+        next_level: "Next Level",
+        play_again: "Play Again",
+        moves_count: "{0} Moves",
+        next_level: "Next Level",
+        play_again: "Play Again",
+        mystery_mode: "MYSTERY MODE",
+        language: "Language",
+        game_title_main: "Ring Sort",
+        game_title: "Ring Sort Puzzle",
+        game_subtitle: "Puzzle Game",
+        out_of_moves: "Out of Moves!",
+        level_failed: "Level Failed",
+        try_again: "Try Again",
+        extra_moves: "+10 Moves"
+    },
+    ru: {
+        play: "Играть",
+        levels: "Уровни",
+        settings: "Настройки",
+        stars_stat: "Звезды",
+        completed_stat: "Завершено",
+        select_level: "Выбор уровня",
+        level: "Уровень",
+        moves: "Ходы:",
+        undo: "Отмена",
+        sound: "Звуки",
+        congrats: "Поздравляем!",
+        level_completed: "Уровень {0} пройден!",
+        moves_count: "{0} Ходов",
+        next_level: "След. уровень",
+        play_again: "Играть снова",
+        mystery_mode: "ТАЙНЫЙ РЕЖИМ",
+        language: "Язык",
+        game_title_main: "Сортировка Колец",
+        game_title: "Ring Sort Puzzle",
+        game_subtitle: "Игра-головоломка",
+        out_of_moves: "Ходы Закончились!",
+        level_failed: "Уровень Провален",
+        try_again: "Попробовать Снова",
+        extra_moves: "+10 Ходов"
+    },
+    tr: {
+        play: "Oyna",
+        levels: "Seviyeler",
+        settings: "Ayarlar",
+        stars_stat: "Yıldız",
+        completed_stat: "Tamamlanan",
+        select_level: "Seviye Seç",
+        level: "Seviye",
+        moves: "Hamle:",
+        undo: "Geri Al",
+        sound: "Ses Efektleri",
+        congrats: "Tebrikler!",
+        level_completed: "Seviye {0} Tamamlandı!",
+        moves_count: "{0} Hamle",
+        next_level: "Sonraki Seviye",
+        play_again: "Tekrar Oyna",
+        mystery_mode: "GİZEMLİ MOD",
+        language: "Dil",
+        game_title_main: "Halka Sıralama",
+        game_title: "Ring Sort Puzzle",
+        game_subtitle: "Bulmaca Oyunu",
+        out_of_moves: "Hamle Hakkınız Bitti!",
+        level_failed: "Seviye Başarısız",
+        try_again: "Tekrar Dene",
+        extra_moves: "+10 Hamle"
+    }
+};
+
+class LanguageManager {
+    constructor() {
+        // V15.1: Critical - Check URL Param FIRST for immediate synchronous language
+        // Yandex passes ?lang=xx in the iframe URL. We must use this zero-latency.
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlLang = urlParams.get('lang');
+
+        let saved = localStorage.getItem('rs_lang');
+
+        // Priority: URL > Saved > Navigator
+        if (urlLang && ['en', 'ru', 'tr'].includes(urlLang)) {
+            this.lang = urlLang;
+        } else if (saved) {
+            this.lang = saved;
+        } else {
+            const nav = navigator.language || navigator.userLanguage || 'en';
+            if (nav.startsWith('ru')) this.lang = 'ru';
+            else if (nav.startsWith('tr')) this.lang = 'tr';
+            else this.lang = 'en';
+        }
+
+        this.t = TEXTS[this.lang] || TEXTS['en'];
+
+        // Apply translations immediately on init
+        setTimeout(() => this.apply(), 10);
+    }
+
+    setLanguage(code, save = false) {
+        let lang = 'en';
+        if (code && code.startsWith('ru')) lang = 'ru';
+        else if (code && code.startsWith('tr')) lang = 'tr';
+
+        console.log("Language switched to:", lang, "Save:", save);
+        this.lang = lang;
+        this.t = TEXTS[lang] || TEXTS['en'];
+        this.apply();
+
+        if (save) localStorage.setItem('rs_lang', lang);
+    }
+
+    apply() {
+        const set = (sel, txt) => { const el = document.querySelector(sel); if (el) el.innerText = txt; };
+        const setSpan = (sel, txt) => {
+            const el = document.querySelector(sel);
+            if (el && el.lastElementChild) el.lastElementChild.innerText = txt;
+        };
+
+        setSpan('#btn-play', this.t.play);
+        setSpan('#btn-levels', this.t.levels);
+        setSpan('#btn-settings', this.t.settings);
+
+        const stats = document.querySelectorAll('.stat-label');
+        if (stats.length > 1) {
+            stats[0].innerText = "⭐ " + this.t.stars_stat;
+            stats[1].innerText = "✓ " + this.t.completed_stat;
+        }
+
+        const lvlHeader = document.querySelector('#level-select h2');
+        if (lvlHeader) lvlHeader.innerText = this.t.select_level;
+
+        // V12.0: Updated Selectors
+        const lvlLbl = document.querySelector('.level-badge .lbl');
+        if (lvlLbl) lvlLbl.innerText = this.t.level;
+
+        const mvsLbl = document.querySelector('.moves-badge .lbl');
+        if (mvsLbl) mvsLbl.innerText = this.t.moves;
+
+        const setH2 = document.querySelector('#settings-modal h2');
+        if (setH2) setH2.innerText = this.t.settings;
+
+        // V14.1: Title Localization (Fixed Selectors)
+        const titleH1 = document.getElementById('game-main-title');
+        if (titleH1) titleH1.innerText = this.t.game_title_main;
+
+        const subP = document.getElementById('game-subtitle');
+        if (subP) subP.innerText = this.t.game_subtitle;
+
+        // V14.0: Dynamic Hint Tooltip
+        const hintBtn = document.getElementById('btn-hint');
+        if (hintBtn) hintBtn.title = (this.lang === 'tr' ? 'İpucu' : (this.lang === 'ru' ? 'Подсказка' : 'Hint'));
+
+
+
+        // Settings now only has Sound toggle in basic V12 rewrite
+        const setLabel = document.querySelector('#lbl-sound');
+        if (setLabel) setLabel.innerText = "🔊 " + this.t.sound;
+
+        const cplH2 = document.querySelector('#complete-modal h2');
+        if (cplH2) cplH2.innerText = this.t.congrats;
+
+        setSpan('#btn-next-level', this.t.next_level);
+        setSpan('#btn-replay-level', this.t.play_again);
+        // V15.14: Undo button uses icon + badge only, no text localization needed
+
+        const lblLang = document.querySelector('#lbl-language');
+        if (lblLang) lblLang.innerText = "🌐 " + this.t.language;
+
+        // V15.0: Failed Modal Localization
+        const failedTitle = document.getElementById('failed-title');
+        if (failedTitle) failedTitle.innerText = this.t.level_failed;
+
+        const tryAgainBtn = document.getElementById('btn-try-again');
+        if (tryAgainBtn) {
+            const span = tryAgainBtn.querySelector('span');
+            if (span) span.innerText = "🔄 " + this.t.try_again;
+        }
+
+        const extraMovesText = document.getElementById('extra-moves-text');
+        if (extraMovesText) extraMovesText.innerText = this.t.extra_moves;
+
+        // V15.4: Undo button tooltip
+        const undoBtn = document.getElementById('btn-undo');
+        if (undoBtn) {
+            const tooltipText = this.lang === 'tr' ? 'Geri Al' : (this.lang === 'ru' ? 'Отмена' : 'Undo');
+            undoBtn.title = tooltipText;
+        }
+    }
+
+    get(key, ...args) {
+        let str = this.t[key] || key;
+        args.forEach((a, i) => str = str.replace(`{${i}}`, a));
+        return str;
+    }
+}
+
+// ===== Audio Manager =====
+class AudioManager {
+    constructor() {
+        this.enabled = true;
+        this.initialized = false;
+        this.context = null;
+
+        // V15.8: Create Context IMMEDIATELY (Suspended)
+        // Checks 'window' to be safe (SSR/Node friendly-ish)
+        if (typeof window !== 'undefined') {
+            try {
+                const Ctx = window.AudioContext || window.webkitAudioContext;
+                if (Ctx) {
+                    this.context = new Ctx();
+                    this.initialized = true;
+                }
+            } catch (e) { console.warn('Audio Init Fail', e); }
+        }
+    }
+
+    // Init is now just an alias for resume/unlock
+    async init() {
+        return this.resume();
+    }
+
+    async resume() {
+        if (this.context && this.context.state === 'suspended') {
+            await this.context.resume().catch(() => { });
+        }
+    }
+    setEnabled(enabled) { this.enabled = enabled; }
+    playTone(freq, type, dur, vol = 0.1) {
+        if (!this.enabled || !this.initialized) return;
+        const asc = this.context.createOscillator();
+        const gn = this.context.createGain();
+        asc.connect(gn);
+        gn.connect(this.context.destination);
+        asc.type = type;
+        asc.frequency.setValueAtTime(freq, this.context.currentTime);
+        gn.gain.setValueAtTime(vol, this.context.currentTime);
+        gn.gain.exponentialRampToValueAtTime(0.01, this.context.currentTime + dur);
+        asc.start();
+        asc.stop(this.context.currentTime + dur);
+    }
+    playSound(type) {
+        if (!this.enabled || !this.initialized) return;
+
+        // V15.7: Force resume context if suspended (fixes initial delay)
+        if (this.context && this.context.state === 'suspended') {
+            this.context.resume().catch(e => console.warn(e));
+        }
+
+        try {
+            switch (type) {
+                case 'select': this.playTone(400, 'sine', 0.15, 0.1); break;
+                case 'deselect': this.playTone(300, 'sine', 0.15, 0.08); break;
+                case 'drop': this.playTone(600, 'sine', 0.1, 0.1); break;
+                case 'wrong': this.playTone(150, 'triangle', 0.2, 0.15); break;
+                case 'click': this.playTone(800, 'sine', 0.05, 0.05); break;
+                case 'reveal': this.playTone(1000, 'sine', 0.2, 0.1); break;
+                case 'unlock': this.playTone(1200, 'sine', 0.3, 0.2); break;
+                case 'confetti':
+                    for (let i = 0; i < 5; i++) setTimeout(() => this.playTone(800 + (i * 200), 'square', 0.1, 0.05), i * 80);
+                    break;
+                case 'complete':
+                    this.playTone(523, 'sine', 0.3, 0.2);
+                    setTimeout(() => this.playTone(659, 'sine', 0.3, 0.2), 150);
+                    setTimeout(() => this.playTone(784, 'sine', 0.6, 0.2), 300);
+                    break;
+            }
+        } catch (e) { console.warn('Audio Fail', e); }
+    }
+}
+
+// ===== Game State =====
+class GameState {
+    constructor() {
+        this.cylinders = [];
+        this.selectedCylinder = -1;
+        this.moves = 0;
+        this.minMoves = 0;
+        this.maxMoves = 0; // V15.0: Move Limit
+        this.capacity = 4;
+        this.isMystery = false;
+        this.lockedPoles = [];
+        this.moveHistory = [];
+    }
+    loadLevel(data) {
+        if (!data || !data.cylinders) return;
+        this.cylinders = data.cylinders.map(c => [...c]);
+        this.minMoves = data.minMoves;
+        if (!this.minMoves || this.minMoves < 1) this.minMoves = 20; // Safety fallback
+
+        this.maxMoves = data.maxMoves || Math.ceil(this.minMoves * 2.5); // V15.0: Move Limit
+
+        this.capacity = data.config.ringsPerColor || 4;
+        this.isMystery = !!data.config.mystery;
+        this.lockedPoles = (data.config.locked || []).slice();
+        this.selectedCylinder = -1;
+        this.moves = 0;
+        this.moveHistory = [];
+    }
+    interact(index) {
+        if (index < 0 || index >= this.cylinders.length) return null;
+
+        if (this.lockedPoles.includes(index)) return { result: 'locked' };
+
+        if (this.selectedCylinder === -1) {
+            if (this.cylinders[index].length > 0) {
+                this.selectedCylinder = index;
+                return { result: 'select', from: index };
+            }
+            return null;
+        }
+
+        if (this.selectedCylinder === index) {
+            this.selectedCylinder = -1;
+            return { result: 'deselect' };
+        }
+
+        const from = this.selectedCylinder;
+        const to = index;
+        const fromCyl = this.cylinders[from];
+        const toCyl = this.cylinders[to];
+        const ring = fromCyl[fromCyl.length - 1];
+
+        const validColor = toCyl.length === 0 || toCyl[toCyl.length - 1] === ring;
+        const hasSpace = toCyl.length < this.capacity;
+
+        if (!validColor || !hasSpace) return { result: 'wrong' };
+
+        fromCyl.pop();
+        toCyl.push(ring);
+        this.moves++;
+        this.moveHistory.push({ from, to, ring });
+        this.selectedCylinder = -1;
+
+        const isLevelComplete = this.cylinders.every(c => c.length === 0 || (c.length === this.capacity && c.every(r => r === c[0])));
+        const isCylComplete = toCyl.length === this.capacity && toCyl.every(r => r === toCyl[0]);
+
+        let unlocked = false;
+        if (isCylComplete && this.lockedPoles.length > 0) {
+            this.lockedPoles = [];
+            unlocked = true;
+        }
+
+        return {
+            result: isLevelComplete ? 'levelComplete' : (isCylComplete ? 'complete' : 'drop'),
+            from, to, ring, unlocked
+        };
+    }
+    undo() {
+        if (!this.moveHistory.length) return null;
+        const m = this.moveHistory.pop();
+        this.cylinders[m.to].pop();
+        this.cylinders[m.from].push(m.ring);
+        this.moves--;
+        this.selectedCylinder = -1;
+        this.selectedCylinder = -1;
+        return m;
+    }
+    isValidMove(from, to) {
+        if (from === to) return false;
+        if (from < 0 || from >= this.cylinders.length) return false;
+        if (to < 0 || to >= this.cylinders.length) return false;
+        if (this.lockedPoles.includes(from) || this.lockedPoles.includes(to)) return false;
+
+        const fromCyl = this.cylinders[from];
+        const toCyl = this.cylinders[to];
+
+        if (fromCyl.length === 0) return false; // Nothing to move
+        if (toCyl.length >= this.capacity) return false; // Full
+
+        const ring = fromCyl[fromCyl.length - 1];
+        if (toCyl.length === 0) return true; // Empty target always ok
+
+        return toCyl[toCyl.length - 1] === ring; // Must match color
+    }
+}
+
+// ===== 3D Engine =====
+class Game3D {
+    constructor(canvas, gameState) {
+        this.canvas = canvas;
+        this.state = gameState;
+        this.scene = null;
+        this.camera = null;
+        this.renderer = null;
+        this.raycaster = new THREE.Raycaster();
+        this.mouse = new THREE.Vector2();
+        this.poles = [];
+        this.particles = [];
+        this.animating = false;
+
+        this.initThree();
+        window.addEventListener('resize', () => this.resize());
+    }
+
+    initThree() {
+        try {
+            this.scene = new THREE.Scene();
+            this.scene.background = new THREE.Color(0xe8f4f8);
+
+            const aspect = this.canvas.clientWidth / this.canvas.clientHeight;
+            this.camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 1000);
+
+            this.updateCameraPosition(); // Initial position based on aspect
+
+            const amb = new THREE.AmbientLight(0xffffff, 0.6);
+            this.scene.add(amb);
+            const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+            dir.position.set(10, 20, 10);
+            this.scene.add(dir);
+
+            this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, alpha: true });
+            this.renderer.setSize(this.canvas.clientWidth, this.canvas.clientHeight);
+            this.renderer.setPixelRatio(window.devicePixelRatio);
+
+            this.animate();
+        } catch (e) { }
+    }
+
+    resize() {
+        this.camera.aspect = window.innerWidth / window.innerHeight;
+        this.camera.updateProjectionMatrix();
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+        this.updateCameraPosition();
+    }
+
+    updateCameraPosition() {
+        if (!this.camera) return;
+        const aspect = this.camera.aspect;
+        const baseZ = 24;
+        const baseY = 16;
+
+        let factor = 1;
+        if (aspect < 1.0) {
+            // V16.0: Improved calculation for portrait mode
+            // More aggressive zoom-out for many poles
+            const cols = this.currentCols || 5;
+            const colsFactor = cols >= 5 ? 1.15 : 1.0;
+            factor = (0.85 / Math.max(aspect, 0.4)) * colsFactor;
+        }
+
+        this.camera.position.set(0, baseY * factor, baseZ * factor);
+        this.camera.lookAt(0, 2, 0);
+    }
+
+    hex(colorKey) {
+        const colors = getGlobals().RingColors;
+        const c = colors[colorKey];
+        if (!c) return 0x999999;
+        return parseInt(c.main.replace('#', '0x'), 16);
+    }
+
+    buildLevel(numCylinders, cylindersData, capacity = 4) {
+        while (this.scene.children.length > 2) {
+            this.scene.remove(this.scene.children[this.scene.children.length - 1]);
+        }
+        this.poles = [];
+        this.particles = [];
+
+        // Dynamic Layout Calculation
+        const isPortrait = window.innerHeight > window.innerWidth;
+
+        let cols = numCylinders;
+        let rows = 1;
+
+        if (isPortrait) {
+            // Mobile/Portrait: Use 2 rows if more than 4 poles
+            if (numCylinders > 4) {
+                cols = Math.ceil(numCylinders / 2);
+                rows = 2;
+            }
+        } else {
+            // Landscape/Desktop: Use 2 rows if more than 7 poles
+            if (numCylinders > 7) {
+                cols = Math.ceil(numCylinders / 2);
+                rows = 2;
+            }
+        }
+
+        // V16.0: Dynamic spacing to prevent overflow on narrow screens
+        let spacing = 4.0; // Default spacing
+        if (isPortrait && cols >= 5) {
+            // Reduce spacing for 5+ columns on portrait mode
+            const maxWidth = 14; // Safe width units that fit in viewport
+            spacing = Math.min(4.0, maxWidth / (cols - 1));
+        }
+
+        // Store for camera adjustment
+        this.currentCols = cols;
+
+        for (let i = 0; i < numCylinders; i++) {
+            const r = Math.floor(i / cols);
+            const c = i % cols;
+
+            // STADIUM FIXED: Reasonable Height
+            const isBack = (rows > 1 && r === 0);
+            const rowY = isBack ? 3.0 : -1.0;
+            const rowZ = (rows === 1) ? 0 : (isBack ? -5.0 : 4.0);
+
+            const itemsInRow = (rows > 1 && r === rows - 1) ? (numCylinders - (rows - 1) * cols) : cols;
+            const rowW = (itemsInRow - 1) * spacing;
+            const rowStartX = -rowW / 2;
+            const px = rowStartX + c * spacing;
+
+            this.createPole(i, px, rowY, rowZ, cylindersData[i], capacity);
+        }
+
+        // Update camera for new layout
+        this.updateCameraPosition();
+
+        // V13.8: Ensure initial reveals if top rings are hidden
+        setTimeout(() => this.checkReveals(), 100);
+    }
+
+    createPole(index, x, y, z, ringsData, capacity) {
+        const group = new THREE.Group();
+        group.name = `pole_${index}`; // V11.8 Fix: Name the GROUP so all children are clickable
+        group.position.set(x, y, z);
+        this.scene.add(group);
+
+        const base = new THREE.Mesh(
+            new THREE.CylinderGeometry(1.8, 2.0, 0.3, 32),
+            new THREE.MeshStandardMaterial({ color: 0x666666, roughness: 0.5 })
+        );
+        base.position.y = 0.15;
+        group.add(base);
+
+        const poleH = capacity * 1.2;
+        const pole = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.25, 0.25, poleH, 16),
+            new THREE.MeshStandardMaterial({ color: 0x8B4513, roughness: 0.8 })
+        );
+        pole.position.y = poleH / 2 + 0.15;
+        group.add(pole);
+
+        // --- LOCK ICON (FIXED Y-POS) ---
+        let lockMesh = null;
+        if (this.state.lockedPoles.includes(index)) {
+            lockMesh = this.createLockMesh();
+            // V15.12: Lower lock position to be closer to pole top
+            lockMesh.position.y = poleH + 0.8;
+            lockMesh.userData = { isLock: true, baseY: poleH + 0.8 };
+            group.add(lockMesh);
+            pole.material = new THREE.MeshStandardMaterial({ color: 0x550000, roughness: 0.8 });
+        }
+
+        const hitMesh = new THREE.Mesh(
+            new THREE.CylinderGeometry(2, 2, poleH + 3, 8),
+            // V11.7 Fix: Opacity 0.001 to ensure not culled, depthWrite false for performance
+            new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.001, side: THREE.DoubleSide, depthWrite: false })
+        );
+        hitMesh.position.y = poleH / 2;
+        hitMesh.name = `pole_${index}`;
+        group.add(hitMesh);
+
+        const ringMeshes = [];
+        ringsData.forEach((color, rIdx) => {
+            const isHidden = this.state.isMystery && rIdx < 2;
+            const mesh = this.createRingMesh(color, isHidden);
+            // V12.2 Fix: Tighter Spacing (1.1 -> 0.95) to remove "Distracting Gaps"
+            mesh.position.y = 0.6 + (rIdx * 0.95);
+            group.add(mesh);
+            ringMeshes.push(mesh);
+        });
+
+        this.poles[index] = { group, ringMeshes, pole, lockMesh, x, y, z };
+    }
+
+    createLockMesh() {
+        const g = new THREE.Group();
+        const body = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.6, 0.2), new THREE.MeshStandardMaterial({ color: 0xffaa00 }));
+        const hoop = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.05, 8, 16, Math.PI), new THREE.MeshStandardMaterial({ color: 0x888888 }));
+        hoop.position.y = 0.3;
+        hoop.rotation.y = Math.PI;
+        g.add(body);
+        g.add(hoop);
+        // Scale it up slightly to be more visible
+        g.scale.setScalar(1.5);
+        return g;
+    }
+
+    createRingMesh(colorKey, isHidden) {
+        const colorHex = isHidden ? 0x888888 : this.hex(colorKey);
+        // Adjusted Geometry for tighter look
+        const geo = new THREE.TorusGeometry(0.9, 0.42, 24, 50); // Slightly thinner tube (0.42)
+        const mat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.2, metalness: 0.1 });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.rotation.x = Math.PI / 2;
+        mesh.userData = { realColor: colorKey, isHidden: isHidden };
+        return mesh;
+    }
+
+    revealRing(mesh) {
+        if (!mesh || !mesh.userData.isHidden) return;
+        const realColor = this.hex(mesh.userData.realColor);
+        mesh.material.color.setHex(realColor);
+        mesh.userData.isHidden = false;
+        const worldPos = new THREE.Vector3();
+        mesh.getWorldPosition(worldPos);
+        this.createExplosion(worldPos.x, worldPos.y, worldPos.z, mesh.userData.realColor);
+    }
+
+    unlockAll() {
+        this.poles.forEach((p, idx) => {
+            if (p.lockMesh) {
+                this.createExplosion(p.x, p.lockMesh.position.y + p.y, p.z, 'yellow');
+                p.group.remove(p.lockMesh);
+                p.lockMesh = null;
+                p.pole.material.color.setHex(0x8B4513);
+            }
+        });
+    }
+
+    createExplosion(x, y, z, colorKey) {
+        try {
+            const color = this.hex(colorKey);
+            const geo = new THREE.BoxGeometry(0.3, 0.3, 0.3);
+            const mat = new THREE.MeshBasicMaterial({ color: color });
+            for (let i = 0; i < 20; i++) {
+                const p = new THREE.Mesh(geo, mat);
+                p.position.set(x, y, z);
+                p.userData = { vel: new THREE.Vector3((Math.random() - 0.5) * 0.5, (Math.random()) * 0.5, (Math.random() - 0.5) * 0.5) };
+                this.scene.add(p);
+                this.particles.push(p);
+            }
+        } catch (e) { }
+    }
+
+    async animateMove(fromIdx, toIdx, ringMesh, onComplete) {
+        this.animating = true;
+        try {
+            if (ringMesh.userData.isHidden) this.revealRing(ringMesh);
+
+            const toPole = this.poles[toIdx];
+            this.scene.attach(ringMesh);
+            const liftY = Math.max(this.poles[fromIdx].group.position.y + this.state.capacity * 1.2, toPole.group.position.y) + 8;
+            await this.tween(ringMesh.position, { y: liftY }, 120);
+            await this.tween(ringMesh.position, { x: toPole.x, z: toPole.z }, 180);
+            // V12.2: Updated Landing Y for tighter spacing
+            const landY = 0.6 + (toPole.ringMeshes.length * 0.95);
+            await this.tween(ringMesh.position, { y: toPole.group.position.y + landY }, 120);
+            toPole.group.attach(ringMesh);
+            toPole.ringMeshes.push(ringMesh);
+
+            onComplete();
+        } catch (e) {
+            console.error("Anim fail", e);
+        } finally {
+            this.animating = false; // SAFETY: Always reset
+        }
+    }
+
+    checkReveals() {
+        let revealedAny = false;
+        try {
+            this.poles.forEach(pole => {
+                if (pole && pole.ringMeshes.length > 0) {
+                    const topMesh = pole.ringMeshes[pole.ringMeshes.length - 1];
+                    if (topMesh && topMesh.userData && topMesh.userData.isHidden) {
+                        this.revealRing(topMesh);
+                        revealedAny = true;
+                    }
+                }
+            });
+        } catch (e) { console.warn('checkReveals fail', e); }
+        return revealedAny;
+    }
+
+    async animateSelect(poleIdx, isSelect) {
+        if (poleIdx === -1) return;
+        const p = this.poles[poleIdx];
+        if (!p || !p.ringMeshes.length) return;
+
+        const mesh = p.ringMeshes[p.ringMeshes.length - 1];
+        // V12.2 Base Y calculation
+        const yBase = 0.6 + ((p.ringMeshes.length - 1) * 0.95);
+        const targetY = isSelect ? yBase + 1.2 : yBase;
+        await this.tween(mesh.position, { y: targetY }, 100);
+    }
+
+    async animateShake(poleIdx) {
+        if (poleIdx === -1) return;
+        const p = this.poles[poleIdx];
+        if (!p || !p.group) return;
+        const startX = p.group.position.x;
+        await this.tween(p.group.position, { x: startX + 0.2 }, 50);
+        await this.tween(p.group.position, { x: startX - 0.2 }, 50);
+        await this.tween(p.group.position, { x: startX }, 50);
+    }
+
+    tween(obj, target, dur) {
+        return new Promise(resolve => {
+            const start = { ...obj };
+            const keys = Object.keys(target);
+            const t0 = performance.now();
+            const animate = (now) => {
+                const p = Math.min((now - t0) / dur, 1);
+                const e = 1 - Math.pow(1 - p, 3);
+                keys.forEach(k => obj[k] = start[k] + (target[k] - start[k]) * e);
+                if (p < 1) requestAnimationFrame(animate);
+                else resolve();
+            };
+            requestAnimationFrame(animate);
+        });
+    }
+
+    getHit(x, y) {
+        // V11.5: Gold Standard Input Detection
+        const rect = this.canvas.getBoundingClientRect();
+        this.mouse.x = ((x - rect.left) / rect.width) * 2 - 1;
+        this.mouse.y = -((y - rect.top) / rect.height) * 2 + 1;
+
+        this.raycaster.setFromCamera(this.mouse, this.camera);
+        const intersects = this.raycaster.intersectObjects(this.scene.children, true);
+
+        for (let hit of intersects) {
+            let obj = hit.object;
+            while (obj) {
+                if (obj.name && obj.name.startsWith('pole_')) {
+                    return parseInt(obj.name.split('_')[1]);
+                }
+                obj = obj.parent;
+            }
+        }
+        return -1;
+    }
+
+    handleHover(index) {
+        // V14.1: Visual Interaction - No scaling to prevent ring shrinking bug
+        this.poles.forEach((p, i) => {
+            if (!p || !p.group) return;
+            // Only change cursor, NO scaling
+            if (i === index) {
+                document.body.style.cursor = 'pointer';
+            } else {
+                document.body.style.cursor = 'default';
+            }
+        });
+    }
+
+    animate() {
+        requestAnimationFrame(() => this.animate());
+
+        // V12.2: Float Animation for Locks
+        const time = Date.now() * 0.002;
+        this.poles.forEach(p => {
+            if (p && p.lockMesh) {
+                p.lockMesh.position.y = p.lockMesh.userData.baseY + Math.sin(time) * 0.2;
+                p.lockMesh.rotation.y = time * 0.5;
+            }
+        });
+
+        for (let i = this.particles.length - 1; i >= 0; i--) {
+            const p = this.particles[i];
+            p.position.add(p.userData.vel);
+            p.userData.vel.y -= 0.02;
+            p.userData.vel.x *= 0.98;
+            p.userData.vel.z *= 0.98;
+            p.scale.multiplyScalar(0.95);
+            if (p.scale.x < 0.01) {
+                this.scene.remove(p);
+                this.particles.splice(i, 1);
+            }
+        }
+        if (this.renderer) this.renderer.render(this.scene, this.camera);
+    }
+}
+
+// ===== Main App =====
+class App {
+    constructor() {
+        this.canvas = document.getElementById('game-canvas');
+        this.state = new GameState();
+        this.audio = new AudioManager();
+        this.lang = new LanguageManager();
+
+        if (typeof THREE === 'undefined') {
+            console.error("Three.js not loaded.");
+            const txt = document.querySelector('.loading-text');
+            if (txt) txt.innerText = "Error: Three.js Missing!";
+            return;
+        }
+
+        this.game3D = new Game3D(this.canvas, this.state);
+
+        const check = setInterval(() => {
+            if (window.LevelManager) {
+                clearInterval(check);
+                this.lvlMgr = new window.LevelManager();
+                this.init();
+            }
+        }, 100);
+    }
+
+    init() {
+        this.load();
+        this.lang.apply();
+
+        // V15.9: Load sound preference from localStorage
+        const savedSound = localStorage.getItem('rs_sound');
+        if (savedSound !== null) {
+            const enabled = savedSound === '1';
+            this.audio.setEnabled(enabled);
+            const toggle = document.getElementById('toggle-sound');
+            if (toggle) toggle.checked = enabled;
+        }
+
+        // V15.11: Load hint credits from localStorage
+        this.hintCredits = parseInt(localStorage.getItem('rs_hints') || '0', 10);
+        this.updateHintBadge();
+
+        setTimeout(() => this.screen('main-menu'), 100);
+        this.bind();
+        const unlock = () => {
+            if (this.audio) this.audio.init().then(() => this.audio.resume());
+            window.removeEventListener('click', unlock);
+            window.removeEventListener('touchstart', unlock);
+        };
+        window.addEventListener('click', unlock);
+        window.addEventListener('touchstart', unlock);
+
+        // V13.7: Disable Context Menu & Selection (Yandex Requirement)
+        window.addEventListener('contextmenu', (e) => e.preventDefault(), { passive: false });
+        window.addEventListener('selectstart', (e) => e.preventDefault(), { passive: false });
+
+        // Prevent scrolling on mobile (only allow if target is scrollable, which we don't have)
+        window.addEventListener('touchmove', (e) => {
+            if (e.target.closest('.scrollable')) return; // If we had scrollable areas
+            e.preventDefault();
+        }, { passive: false });
+
+        // V15.12: Yandex Audio + GameplayAPI - Stop when tab hidden/minimized
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                // Tab hidden - stop audio and gameplay
+                this.audio.setEnabled(false);
+                if (window.YandexSDK) window.YandexSDK.gameplayStop();
+            } else {
+                // Tab visible - resume audio and gameplay
+                const soundEnabled = document.getElementById('toggle-sound')?.checked;
+                this.audio.setEnabled(soundEnabled !== false);
+                if (window.YandexSDK) window.YandexSDK.gameplayStart();
+            }
+        });
+    }
+
+    screen(id) {
+        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+        document.getElementById(id)?.classList.add('active');
+        if (id === 'game-screen') requestAnimationFrame(() => this.game3D.resize());
+
+        // V12.3: Menu Stats Update
+        if (id === 'main-menu') {
+            const totalStars = Object.values(this.stars).reduce((a, b) => a + b, 0);
+            const completed = this.unlocked - 1;
+
+            const elStars = document.getElementById('total-stars');
+            if (elStars) elStars.innerText = totalStars;
+
+            const elComp = document.getElementById('completed-levels');
+            if (elComp) elComp.innerText = completed;
+        }
+    }
+
+    showLevels() {
+        const g = document.getElementById('levels-grid');
+        g.innerHTML = '';
+        const total = getGlobals().Levels || 60;
+        for (let i = 1; i <= total; i++) {
+            const b = document.createElement('button');
+            b.className = `level-btn ${i <= this.unlocked ? '' : 'locked'} ${i === this.unlocked ? 'current' : ''}`;
+            const stars = this.stars[i] || 0;
+            const starStr = stars > 0 ? `<div style="font-size:12px; margin-top:2px;">${'⭐'.repeat(stars)}</div>` : '';
+            b.innerHTML = `<div style="font-size:18px">${i}</div>${starStr}`;
+
+            if (i <= this.unlocked) b.onclick = () => { this.start(i); };
+            g.appendChild(b);
+        }
+        this.screen('level-select');
+        this.lang.apply();
+    }
+
+    bind() {
+        // V15.6: Enhanced click helper with stopPropagation to prevent 'ghost clicks' on canvas
+        const click = (id, fn) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.addEventListener('click', (e) => {
+                e.stopPropagation(); // CRITICAL: Stop click from reaching game canvas
+                this.audio.playSound('click');
+                fn(e);
+            });
+            // Also block mousedown to prevent 'handleInput' from firing on buttons
+            el.addEventListener('mousedown', (e) => e.stopPropagation());
+            el.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: false });
+        };
+
+        // Main Menu
+        click('btn-play', () => {
+            this.start(this.unlocked || 1);
+        });
+
+        click('btn-levels', () => {
+            this.showLevels();
+        });
+
+        // Settings handled later in file (unified)
+
+        // Navigation
+        click('btn-back-menu', () => this.screen('main-menu'));
+        click('btn-back-levels', () => this.showLevels());
+        click('btn-restart', () => {
+            // Restart current level
+            this.start(this.curLvl);
+        });
+
+        // Game Actions (Monetized)
+        click('btn-next-level', () => {
+            const nextLevel = this.curLvl + 1; // Capture value before async ad
+            document.getElementById('complete-modal').classList.remove('active');
+            this.showAd(() => this.start(nextLevel));
+        });
+        click('btn-replay-level', () => {
+            const currentLevel = this.curLvl; // Capture value before async ad
+            document.getElementById('complete-modal').classList.remove('active');
+            this.showAd(() => this.start(currentLevel));
+        });
+
+        // Failed Modal - Try Again
+        click('btn-try-again', () => {
+            document.getElementById('failed-modal').classList.remove('active');
+            this.start(this.curLvl);
+        });
+
+        // Failed Modal - Extra Moves (Rewarded Ad)
+        click('btn-extra-moves', () => {
+            this.showReward(() => {
+                // Grant +10 moves
+                this.state.maxMoves += 10;
+                this.updUI();
+                document.getElementById('failed-modal').classList.remove('active');
+                this.audio.playSound('unlock');
+            });
+        });
+
+        // Undo (V15.12: Fixed Badge Loss Issue)
+        const btnUndo = document.getElementById('btn-undo');
+        if (btnUndo) {
+            // Clear button and rebuild (innerHTML was removing badge)
+            btnUndo.innerHTML = '';
+            btnUndo.textContent = '↩️';
+
+            btnUndo.onclick = () => {
+                // V15.10: Check if there are moves to undo BEFORE showing ad
+                if (!this.state.moveHistory || this.state.moveHistory.length === 0) {
+                    this.audio.playSound('deselect');
+                    return; // No moves to undo, don't show ad
+                }
+                // Show rewarded ad before undo
+                this.showReward(() => {
+                    const m = this.state.undo();
+                    if (m) {
+                        this.audio.playSound('click');
+                        this.game3D.buildLevel(this.state.cylinders.length, this.state.cylinders, this.state.capacity);
+                        this.updUI();
+                    } else this.audio.playSound('deselect');
+                });
+            };
+
+            // V15.12: Add ad-badge (after textContent to prevent override)
+            const adBadge = document.createElement('span');
+            adBadge.className = 'ad-badge';
+            adBadge.textContent = '📺';
+            btnUndo.appendChild(adBadge);
+        }
+
+        // Hint (Smart Algorithm v3 - No Loops) with Credit System
+        click('btn-hint', () => {
+            // V15.11: Check if we have hint credits
+            if (this.hintCredits <= 0) {
+                // No credits, show ad to get 5 credits
+                this.showReward(() => {
+                    this.hintCredits = 5;
+                    localStorage.setItem('rs_hints', this.hintCredits.toString());
+                    this.updateHintBadge();
+                    this.audio.playSound('unlock');
+                    // Now use one credit for the hint
+                    this.executeHint();
+                });
+            } else {
+                // Has credits, use one
+                this.executeHint();
+            }
+        });
+
+        // Settings & Sound
+        click('btn-settings', () => {
+            document.getElementById('settings-modal').classList.add('active');
+            const toggle = document.getElementById('toggle-sound');
+            if (toggle) toggle.checked = this.audio.enabled;
+            // V15.12: GameplayAPI - settings menu opened
+            if (window.YandexSDK) window.YandexSDK.gameplayStop();
+        });
+        click('btn-close-settings', () => {
+            document.getElementById('settings-modal').classList.remove('active');
+            // V15.12: GameplayAPI - settings menu closed
+            if (window.YandexSDK) window.YandexSDK.gameplayStart();
+        });
+
+        // V15.9: Mobile-friendly sound toggle - listen to both change and click events
+        const soundToggle = document.getElementById('toggle-sound');
+        if (soundToggle) {
+            const handleSoundToggle = (e) => {
+                // Use setTimeout to ensure checked state is updated
+                setTimeout(() => {
+                    this.audio.setEnabled(soundToggle.checked);
+                    // Save preference to localStorage
+                    localStorage.setItem('rs_sound', soundToggle.checked ? '1' : '0');
+                }, 0);
+            };
+            soundToggle.addEventListener('change', handleSoundToggle);
+            soundToggle.addEventListener('click', handleSoundToggle);
+            // Also handle touch events for better mobile support
+            soundToggle.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                soundToggle.checked = !soundToggle.checked;
+                handleSoundToggle(e);
+            });
+        }
+
+        // Language Buttons
+        click('btn-lang-en', () => this.lang.setLanguage('en', true));
+        click('btn-lang-tr', () => this.lang.setLanguage('tr', true));
+        click('btn-lang-ru', () => this.lang.setLanguage('ru', true));
+
+        // Global Input (V11.9 Fix)
+        const handleInput = (e) => {
+            if (this.game3D.animating) return;
+            // Ignore UI
+            if (e.target.closest('button') || e.target.closest('.modal-content')) return;
+
+            let x, y;
+            if (e.type === 'touchstart') {
+                if (e.changedTouches.length === 0) return;
+                e.preventDefault();
+                x = e.changedTouches[0].clientX;
+                y = e.changedTouches[0].clientY;
+            } else {
+                x = e.clientX;
+                y = e.clientY;
+            }
+
+            const idx = this.game3D.getHit(x, y);
+            if (idx !== -1) {
+                this.handleHit(idx);
+            }
+        };
+
+        window.addEventListener('mousedown', handleInput);
+        window.addEventListener('touchstart', handleInput, { passive: false });
+
+        window.addEventListener('mousemove', (e) => {
+            if (this.game3D.animating) return;
+            const idx = this.game3D.getHit(e.clientX, e.clientY);
+            this.game3D.handleHover(idx);
+        });
+    }
+
+    async handleHit(index) {
+        if (this.game3D.animating) return;
+
+        try {
+            const cyl = this.state.cylinders[index];
+            if (cyl && cyl.length > 0) {
+                const topMesh = this.game3D.poles[index].ringMeshes[this.game3D.poles[index].ringMeshes.length - 1];
+                if (topMesh && topMesh.userData.isHidden) {
+                    this.audio.playSound('reveal');
+                    this.game3D.revealRing(topMesh);
+                    return;
+                }
+            }
+
+            const res = this.state.interact(index);
+
+            if (res.result === 'locked') {
+                this.audio.playSound('wrong');
+                this.game3D.animateShake(index);
+            }
+            else if (res.result === 'select') {
+                this.audio.playSound('select');
+                this.game3D.animateSelect(res.from, true);
+            }
+            else if (res.result === 'deselect') {
+                this.audio.playSound('deselect');
+                this.game3D.animateSelect(index, false);
+            }
+            else if (res.result === 'drop' || res.result === 'levelComplete' || res.result === 'complete') {
+                this.audio.playSound('drop');
+                const fromP = this.game3D.poles[res.from];
+                const mesh = fromP.ringMeshes.pop();
+
+                await this.game3D.animateMove(res.from, res.to, mesh, () => {
+                    // Try-Catch inside Callback to ensure Level Complete fires
+                    try {
+                        if (this.game3D.checkReveals()) {
+                            this.audio.playSound('reveal');
+                        }
+
+                        if (res.unlocked) {
+                            this.audio.playSound('unlock');
+                            this.game3D.unlockAll();
+                        }
+
+                        if (res.result === 'complete' || res.result === 'levelComplete') {
+                            this.audio.playSound('complete');
+                            const p = this.game3D.poles[res.to];
+                            this.game3D.createExplosion(p.x, p.y + 5, p.z, res.ring);
+                        }
+
+                        if (res.result === 'levelComplete') {
+                            this.audio.playSound('confetti');
+                            // Show interstitial ad on level completion
+                            this.showAd(() => {
+                                this.levelComplete();
+                            });
+                        } else {
+                            // V15.0: Check move limit (only if level not complete)
+                            if (this.state.moves >= this.state.maxMoves) {
+                                this.audio.playSound('wrong');
+                                setTimeout(() => this.levelFailed(), 500);
+                            }
+                        }
+                    } catch (e) {
+                        // FALLBACK
+                        console.error("Callback crash", e);
+                        if (res.result === 'levelComplete') this.levelComplete();
+                    }
+                });
+                this.updUI();
+            }
+            else if (res.result === 'wrong') {
+                this.audio.playSound('wrong');
+                this.game3D.animateShake(this.state.selectedCylinder);
+            }
+        } catch (e) { console.error("Hit error", e); }
+    }
+
+    levelComplete() {
+        try {
+            // V15.12: Yandex GameplayAPI - gameplay stops
+            if (window.YandexSDK) window.YandexSDK.gameplayStop();
+
+            const maxFor3 = this.state.minMoves;
+            // V14.3: 2 Stars = Allow 25% slack (rounded up)
+            // e.g., if min=20, maxFor3=20, maxFor2=25.
+            const maxFor2 = Math.ceil(this.state.minMoves * 1.25);
+
+            console.log("Level Complete. Moves:", this.state.moves, "Min:", maxFor3, "2StarLimit:", maxFor2);
+
+            let stars = 1;
+            if (this.state.moves <= maxFor3) stars = 3;
+            else if (this.state.moves <= maxFor2) stars = 2;
+
+            this.stars[this.curLvl] = Math.max(this.stars[this.curLvl] || 0, stars);
+            this.unlocked = Math.max(this.unlocked, this.curLvl + 1);
+            this.save();
+
+            const m = document.getElementById('complete-modal');
+            m.classList.remove('active'); // Reset first
+            void m.offsetWidth; // Force reflow
+            m.classList.add('active');
+
+            // V12.0: Star Update Logic
+            const starEls = m.querySelectorAll('.star');
+            starEls.forEach((el, idx) => {
+                if (idx < stars) el.classList.add('earned');
+                else el.classList.remove('earned');
+            });
+
+            m.querySelector('.complete-msg').innerHTML = this.lang.get('level_completed', `<span style="color:var(--primary)">${this.curLvl}</span>`);
+            // Note: We removed detailed stats in V12 CSS for simpler look, but referencing moves if needed is fine. Use console.
+        } catch (e) { console.error("Modal crash", e); }
+    }
+
+    // V15.0: Level Failed (Out of Moves)
+    levelFailed() {
+        try {
+            // V15.12: Yandex GameplayAPI - gameplay stops
+            if (window.YandexSDK) window.YandexSDK.gameplayStop();
+
+            const m = document.getElementById('failed-modal');
+            m.classList.remove('active');
+            void m.offsetWidth; // Force reflow
+            m.classList.add('active');
+
+            const msg = m.querySelector('.fail-msg');
+            if (msg) {
+                msg.innerHTML = this.lang.get('out_of_moves');
+            }
+        } catch (e) { console.error("Failed modal crash", e); }
+    }
+
+    start(n) {
+        this.curLvl = n;
+        const data = this.lvlMgr.generateLevel(n);
+        this.state.loadLevel(data);
+        this.game3D.buildLevel(data.cylinders.length, this.state.cylinders, this.state.capacity);
+
+        // V12.0: Updated Badge Selector
+        const badge = document.querySelector('.level-badge');
+        if (this.state.isMystery) {
+            badge.querySelector('.lbl').innerText = this.lang.get('mystery_mode');
+            badge.querySelector('.val').innerText = n;
+        } else {
+            badge.querySelector('.lbl').innerText = this.lang.get('level');
+            badge.querySelector('.val').innerText = n;
+        }
+
+        this.screen('game-screen');
+        this.updUI();
+
+        // V15.12: Yandex GameplayAPI - gameplay starts
+        if (window.YandexSDK) window.YandexSDK.gameplayStart();
+    }
+
+    // V15.11: Update hint badge display
+    updateHintBadge() {
+        const badge = document.getElementById('hint-badge');
+        if (!badge) return;
+
+        if (this.hintCredits > 0) {
+            badge.textContent = this.hintCredits.toString();
+            badge.style.background = 'var(--success)';
+            badge.style.color = 'white';
+        } else {
+            badge.textContent = '📺';
+            badge.style.background = 'white';
+            badge.style.color = 'var(--text-main)';
+        }
+    }
+
+    // V15.11: Execute hint with credit deduction
+    executeHint() {
+        // Deduct one credit
+        this.hintCredits--;
+        localStorage.setItem('rs_hints', this.hintCredits.toString());
+        this.updateHintBadge();
+        this.audio.playSound('click');
+
+        const s = this.state;
+        let bestMove = null;
+        let bestScore = -1;
+
+        // Analyze cylinder structure
+        const analyzeCylinder = (idx) => {
+            const cyl = s.cylinders[idx];
+            if (cyl.length === 0) return { topColor: null, sameCount: 0, isComplete: false, isTrapped: false };
+
+            const topColor = cyl[cyl.length - 1];
+            let sameCount = 0;
+            for (let i = cyl.length - 1; i >= 0; i--) {
+                if (cyl[i] === topColor) sameCount++;
+                else break;
+            }
+
+            const isComplete = sameCount === cyl.length && cyl.length === s.capacity;
+            const isTrapped = sameCount < cyl.length;
+
+            return { topColor, sameCount, isComplete, isTrapped };
+        };
+
+        // Find best matching stack for a color
+        const findMatchingStack = (color) => {
+            let best = { idx: -1, count: 0 };
+            for (let i = 0; i < s.cylinders.length; i++) {
+                if (s.lockedPoles.includes(i)) continue;
+                const info = analyzeCylinder(i);
+                if (info.topColor === color && info.sameCount > best.count) {
+                    best = { idx: i, count: info.sameCount };
+                }
+            }
+            return best;
+        };
+
+        // Score move quality
+        const scoreMove = (from, to) => {
+            if (this.lastHintMove && this.lastHintMove.from === to && this.lastHintMove.to === from) {
+                return -5000;
+            }
+
+            const fromInfo = analyzeCylinder(from);
+            const toInfo = analyzeCylinder(to);
+
+            if (fromInfo.isComplete) return -10000;
+
+            if (fromInfo.isTrapped) {
+                const match = findMatchingStack(fromInfo.topColor);
+                if (match.idx >= 0 && match.idx !== from && to === match.idx) {
+                    const ringsAfter = toInfo.sameCount + fromInfo.sameCount;
+                    if (ringsAfter === s.capacity) return 10000;
+                    return 5000 + ringsAfter * 100;
+                }
+            }
+
+            if (toInfo.topColor === fromInfo.topColor) {
+                const combined = toInfo.sameCount + fromInfo.sameCount;
+                if (combined === s.capacity) return 9000;
+                if (combined <= s.capacity) {
+                    if (toInfo.sameCount >= fromInfo.sameCount) {
+                        return 3000 + toInfo.sameCount * 100;
+                    } else {
+                        return 2000 + fromInfo.sameCount * 50;
+                    }
+                }
+            }
+
+            if (toInfo.topColor === null) {
+                const match = findMatchingStack(fromInfo.topColor);
+                if (match.idx >= 0 && match.idx !== from) {
+                    return 200;
+                }
+                return fromInfo.isTrapped ? 1500 : 50;
+            }
+
+            return 100;
+        };
+
+        // Find best valid move
+        for (let f = 0; f < s.cylinders.length; f++) {
+            if (!s.cylinders[f].length || s.lockedPoles.includes(f)) continue;
+            const fromInfo = analyzeCylinder(f);
+            if (fromInfo.isComplete) continue;
+
+            for (let t = 0; t < s.cylinders.length; t++) {
+                if (f === t || s.lockedPoles.includes(t)) continue;
+
+                if (s.isValidMove(f, t)) {
+                    const score = scoreMove(f, t);
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestMove = { from: f, to: t };
+                    }
+                }
+            }
+        }
+
+        if (bestMove && bestScore > 0) {
+            this.lastHintMove = { from: bestMove.from, to: bestMove.to };
+
+            s.interact(bestMove.from);
+            const res = s.interact(bestMove.to);
+
+            const fromPole = this.game3D.poles[bestMove.from];
+            const ringMesh = fromPole.ringMeshes.pop();
+
+            if (ringMesh) {
+                this.game3D.animateMove(bestMove.from, bestMove.to, ringMesh, () => {
+                    this.game3D.handleHover(-1);
+
+                    if (this.game3D.checkReveals()) {
+                        this.audio.playSound('reveal');
+                    }
+
+                    if (res.unlocked) {
+                        this.audio.playSound('unlock');
+                        this.game3D.unlockAll();
+                    }
+
+                    this.updUI();
+
+                    if (res.result === 'levelComplete') {
+                        this.audio.playSound('complete');
+                        this.audio.playSound('confetti');
+                        setTimeout(() => this.levelComplete(), 1000);
+                    } else {
+                        this.audio.playSound('drop');
+                    }
+                });
+            }
+        }
+    }
+
+    updUI() {
+        // V15.0: Show Moves with Limit
+        const movesVal = document.querySelector('.moves-badge .val');
+        if (movesVal) {
+            movesVal.textContent = `${this.state.moves}/${this.state.maxMoves}`;
+        }
+
+        // V15.10: Update Undo Button State
+        const btnUndo = document.getElementById('btn-undo');
+        if (btnUndo) {
+            const hasHistory = this.state.moveHistory && this.state.moveHistory.length > 0;
+            btnUndo.disabled = !hasHistory;
+            btnUndo.style.opacity = hasHistory ? '1' : '0.5';
+            btnUndo.style.pointerEvents = hasHistory ? 'auto' : 'none';
+        }
+
+        // Update Hint Button
+        const hBadge = document.getElementById('hint-counter');
+        const hAd = document.getElementById('hint-ad-icon');
+        const count = this.state.hints;
+
+        if (hBadge && hAd) {
+            if (count > 0) {
+                hBadge.classList.remove('hidden');
+                hBadge.innerText = count;
+                hAd.classList.add('hidden');
+            } else {
+                hBadge.classList.add('hidden');
+                hAd.classList.remove('hidden');
+            }
+        }
+    }
+
+    // V13.0: Monetization (Ads)
+    showAd(cb) {
+        if (window.YandexSDK) {
+            window.YandexSDK.showInterstitialAd(cb);
+        } else {
+            console.log('Dev: Ad Simulated');
+            cb && cb();
+        }
+    }
+
+    performHint() {
+        const s = this.state;
+        let bestMove = null;
+
+        // Find a valid move
+        for (let f = 0; f < s.cylinders.length; f++) {
+            if (!s.cylinders[f].length || s.lockedPoles.includes(f)) continue;
+            for (let t = 0; t < s.cylinders.length; t++) {
+                if (s.isValidMove(f, t)) {
+                    bestMove = { from: f, to: t };
+                    break;
+                }
+            }
+            if (bestMove) break;
+        }
+
+        if (bestMove) {
+            // Deduct
+            s.hints = Math.max(0, s.hints - 1);
+            this.save();
+            this.updUI();
+
+            // Execute move
+            const ring = s.cylinders[bestMove.from][s.cylinders[bestMove.from].length - 1];
+            s.interact(bestMove.from);
+            s.interact(bestMove.to);
+
+            // Animate
+            const p = this.game3D.poles[bestMove.from];
+            const ringMesh = p.ringMeshes.pop();
+            this.game3D.animateMove(bestMove.from, bestMove.to, ringMesh, () => {
+                this.game3D.handleHover(-1);
+                this.game3D.checkReveals();
+                this.updUI();
+                const result = s.cylinders.every(c => c.length === 0 || (c.length === s.capacity && c.every(r => r === c[0])));
+                if (result) {
+                    this.audio.playSound('complete');
+                    this.audio.playSound('confetti');
+                    setTimeout(() => this.completeLevel(), 1000);
+                } else {
+                    this.audio.playSound('drop');
+                }
+            });
+        }
+    }
+
+    showReward(cb) {
+        if (window.YandexSDK) {
+            window.YandexSDK.showRewardedAd(cb);
+        } else {
+            console.log('Dev: Reward Simulated');
+            cb && cb();
+        }
+    }
+    load() {
+        const d = JSON.parse(localStorage.getItem('rs_save') || '{}');
+        this.unlocked = d.u || 1;
+        this.stars = d.s || {};
+    }
+    save() {
+        const saveData = { u: this.unlocked, s: this.stars };
+        localStorage.setItem('rs_save', JSON.stringify(saveData));
+
+        // Also save to Yandex Cloud if available
+        if (window.saveYandexProgress) {
+            window.saveYandexProgress({
+                levelsCompleted: this.unlocked - 1,
+                currentLevel: this.unlocked,
+                stars: Object.values(this.stars).reduce((a, b) => a + b, 0)
+            });
+        }
+    }
+
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const game = new App();
+    window.game = game; // Global reference for SDK
+
+    // V14.0: Clean SDK Initialization (No Race Condition)
+    // V14.0: Clean SDK Initialization (No Race Condition)
+    const startApp = () => {
+        // V15.4: Call Ready API immediately when we are actually ready to show the game
+        // This prevents double-loading screens from Yandex
+        if (window.ysdk) {
+            window.ysdk.features.LoadingAPI?.ready();
+            console.log('Game Ready API called (Synchronized)');
+        }
+
+        const loader = document.getElementById('loading-screen');
+        if (loader) {
+            loader.style.opacity = '0';
+            setTimeout(() => loader.style.display = 'none', 500);
+        }
+    };
+
+    if (window.YaGames) {
+        YaGames.init().then(ysdk => {
+            const yandexLang = ysdk.environment?.i18n?.lang;
+            console.log('Yandex SDK Initialized, lang:', yandexLang || 'unknown');
+            window.ysdk = ysdk;
+
+            if (game && game.lang) {
+                const urlParams = new URLSearchParams(window.location.search);
+                const urlLang = urlParams.get('lang'); // Yandex URL parameter
+                const saved = localStorage.getItem('rs_lang');
+                const currentLang = game.lang.lang; // Already set to browser lang
+                const isYandexPlatform = window.location.hostname.includes('yandex');
+
+                if (urlLang && ['en', 'ru', 'tr'].includes(urlLang)) {
+                    // Priority 1: URL parameter (Yandex platform uses this)
+                    console.log('→ Using URL language:', urlLang);
+                    game.lang.setLanguage(urlLang, false);
+                } else if (yandexLang && ['en', 'ru', 'tr'].includes(yandexLang)) {
+                    // Priority 2: Yandex SDK language (Trust SDK if it returns a valid supported lang)
+                    console.log('→ Using Yandex SDK language:', yandexLang);
+                    game.lang.setLanguage(yandexLang, false);
+                } else if (saved) {
+                    // Priority 3: User saved preference (local testing)
+                    console.log('→ Using saved language:', saved);
+                    game.lang.setLanguage(saved, false);
+                } else {
+                    // Priority 4: Browser language
+                    console.log('→ Keeping browser language:', currentLang);
+                }
+            }
+
+            startApp();
+        }).catch(e => {
+            console.warn('SDK Init Fail:', e);
+            startApp(); // Fallback with browser language
+        });
+    } else {
+        console.warn('YaGames not found (Offline Mode)');
+        setTimeout(startApp, 1000);
+    }
+});
+
